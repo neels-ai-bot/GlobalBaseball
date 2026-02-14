@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/fetch-schedule",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-boxscores",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/fetch-standings",
+      "schedule": "0 */4 * * *"
+    },
+    {
+      "path": "/api/cron/fetch-rosters",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}
