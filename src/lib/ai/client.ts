@@ -1,26 +1,21 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function generateContent(
   systemPrompt: string,
   userPrompt: string,
-  maxTokens: number = 2000
+  _maxTokens: number = 2000
 ): Promise<string> {
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: maxTokens,
-    system: systemPrompt,
-    messages: [
-      {
-        role: "user",
-        content: userPrompt,
-      },
-    ],
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not set");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash",
+    systemInstruction: systemPrompt,
   });
 
-  const textBlock = message.content.find((block) => block.type === "text");
-  return textBlock?.text || "";
+  const result = await model.generateContent(userPrompt);
+  return result.response.text();
 }
