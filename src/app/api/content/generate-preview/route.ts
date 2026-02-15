@@ -16,10 +16,10 @@ export async function POST(request: Request) {
 
     const supabase = createAdminClient();
 
-    // Find upcoming games without previews (next 2 days)
+    // Find upcoming games without previews (next 30 days)
     const today = new Date();
     const twoDaysLater = new Date(today);
-    twoDaysLater.setDate(twoDaysLater.getDate() + 2);
+    twoDaysLater.setDate(twoDaysLater.getDate() + 30);
 
     const { data: games } = await supabase
       .from("games")
