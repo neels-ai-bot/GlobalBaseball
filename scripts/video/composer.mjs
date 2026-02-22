@@ -113,6 +113,109 @@ function normalizeClip(inputPath, outputPath) {
   });
 }
 
+// ─── Broadcast Mode: Game Footage + Overlay ─────────────────
+
+function createBroadcastSegment(clipPath, overlayPath, audioPath, duration, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(clipPath)
+      .inputOptions(["-stream_loop", "-1"]) // Loop clip if shorter than narration
+      .input(overlayPath)
+      .inputOptions(["-loop", "1"]) // Hold overlay PNG for full duration
+      .input(audioPath)
+      .complexFilter([
+        `[0:v]scale=${CONFIG.video.width}:${CONFIG.video.height}:force_original_aspect_ratio=decrease,pad=${CONFIG.video.width}:${CONFIG.video.height}:(ow-iw)/2:(oh-ih)/2:color=0c1929,setsar=1[bg]`,
+        `[bg][1:v]overlay=0:0:format=auto[vout]`,
+      ])
+      .outputOptions([
+        "-map", "[vout]",
+        "-map", "2:a",
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-t", String(duration),
+        "-r", String(CONFIG.video.fps),
+      ])
+      .output(outputPath)
+      .on("end", () => resolve(outputPath))
+      .on("error", reject)
+      .run();
+  });
+}
+
+export function composeBroadcastVideo(overlayImages, audioFiles, clipPaths, outputFilename) {
+  return new Promise(async (resolve, reject) => {
+    mkdirSync(CONFIG.paths.videos, { recursive: true });
+    mkdirSync(FFMPEG_TEMP, { recursive: true });
+
+    const segmentsTemp = path.join(FFMPEG_TEMP, "broadcast_segments");
+    mkdirSync(segmentsTemp, { recursive: true });
+
+    const outputPath = path.join(CONFIG.paths.videos, outputFilename);
+    const segments = [];
+
+    console.log(`  Composing ${overlayImages.length} broadcast segments over ${clipPaths.length} clips...`);
+
+    for (let i = 0; i < overlayImages.length; i++) {
+      const segPath = path.join(segmentsTemp, `bcast_${String(i).padStart(3, "0")}.mp4`);
+
+      // Remove stale segment
+      if (existsSync(segPath)) unlinkSync(segPath);
+
+      const dur = audioFiles[i]?.duration || 5;
+      const clipIndex = i % clipPaths.length; // Cycle through available clips
+
+      process.stdout.write(`\r  Segment ${i + 1}/${overlayImages.length} (~${dur.toFixed(0)}s) using clip ${clipIndex + 1}...    `);
+
+      try {
+        // Copy files to temp to avoid path-with-spaces issues
+        const tempClip = path.join(segmentsTemp, `clip_src_${i}.mp4`);
+        const tempOverlay = path.join(segmentsTemp, `overlay_${i}.png`);
+        const tempAudio = path.join(segmentsTemp, `audio_${i}.mp3`);
+
+        copyFileSync(clipPaths[clipIndex], tempClip);
+        copyFileSync(overlayImages[i], tempOverlay);
+        copyFileSync(audioFiles[i].path, tempAudio);
+
+        await createBroadcastSegment(tempClip, tempOverlay, tempAudio, dur, segPath);
+        segments.push(segPath);
+      } catch (err) {
+        console.error(`\n  Segment ${i} error: ${err.message}`);
+        reject(err);
+        return;
+      }
+    }
+
+    console.log("\n  All broadcast segments created");
+
+    // Concatenate all segments
+    console.log("  Concatenating final broadcast video...");
+    const concatFile = path.join(FFMPEG_TEMP, "broadcast.txt");
+    const concatContent = segments
+      .map((s) => `file '${s.replace(/\\/g, "/")}'`)
+      .join("\n");
+    writeFileSync(concatFile, concatContent);
+
+    ffmpeg()
+      .input(concatFile)
+      .inputOptions(["-f", "concat", "-safe", "0"])
+      .outputOptions(["-c", "copy", "-movflags", "+faststart"])
+      .output(outputPath)
+      .on("end", () => {
+        console.log(`  Broadcast video saved: ${outputPath}`);
+        resolve(outputPath);
+      })
+      .on("error", (err) => {
+        console.error(`  Concat error: ${err.message}`);
+        reject(err);
+      })
+      .run();
+  });
+}
+
+// ─── Classic Mode: Slide Images + Ken Burns ─────────────────
+
 export function composeVideo(slideImages, audioFiles, outputFilename, useZoom = true, highlightClips = []) {
   return new Promise(async (resolve, reject) => {
     mkdirSync(CONFIG.paths.videos, { recursive: true });

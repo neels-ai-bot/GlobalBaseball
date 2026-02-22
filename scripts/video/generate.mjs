@@ -8,12 +8,12 @@ import {
   buildTeamPreviewVideoPrompt,
 } from "./prompts.mjs";
 import { generateSlideAudio } from "./tts.mjs";
-import { generateSlideImages } from "./graphics.mjs";
-import { composeVideo } from "./composer.mjs";
+import { generateSlideImages, generateOverlayImages } from "./graphics.mjs";
+import { composeVideo, composeBroadcastVideo } from "./composer.mjs";
 import { uploadToYouTube } from "./uploader.mjs";
 import { downloadPlayerHeadshots } from "./media.mjs";
 import { getGameHighlights } from "./highlights.mjs";
-import { getBestWBCHighlights, getTeamWBCHighlights } from "./wbc-history.mjs";
+import { getBestWBCHighlights, getTeamWBCHighlights, getCuratedWBCClips } from "./wbc-history.mjs";
 
 // Ensure output directories exist
 for (const dir of Object.values(CONFIG.paths)) {
@@ -175,18 +175,24 @@ function collectPlayerIds(slides) {
 // ─── Video Generation Pipeline ──────────────────────────────
 
 async function generateVideo(script, sessionId, options = {}) {
-  console.log(`  Title: "${script.title}" (${script.slides.length} slides)`);
+  const broadcast = !args.includes("--classic");
 
-  // Download player headshots
+  console.log(`  Title: "${script.title}" (${script.slides.length} slides)`);
+  console.log(`  Style: ${broadcast ? "Broadcast (game footage + overlays)" : "Classic (slides + zoom)"}`);
+
+  // Step 1: Download player headshots
   console.log("\n  Step 1/5: Downloading player headshots...");
   const playerIds = collectPlayerIds(script.slides);
   const headshots = playerIds.length > 0
     ? await downloadPlayerHeadshots(playerIds)
     : {};
 
-  // Fetch highlight clips (from past WBC or specific game)
+  // Step 2: Fetch video clips
   let highlightClips = [];
-  if (options.gamePk) {
+  if (broadcast) {
+    console.log("\n  Step 2/5: Downloading WBC broadcast footage...");
+    highlightClips = await getCuratedWBCClips(Math.max(script.slides.length, 10));
+  } else if (options.gamePk) {
     console.log("\n  Step 2/5: Fetching game highlights...");
     highlightClips = await getGameHighlights(options.gamePk, 2);
   } else if (options.teamName) {
@@ -197,21 +203,35 @@ async function generateVideo(script, sessionId, options = {}) {
     highlightClips = await getBestWBCHighlights(3);
   }
 
+  // Step 3: Generate audio narration
   console.log("\n  Step 3/5: Generating audio...");
   const audioFiles = await generateSlideAudio(script.slides, sessionId);
 
-  console.log("\n  Step 4/5: Generating slides...");
-  const slideImages = await generateSlideImages(script.slides, sessionId, headshots);
+  if (broadcast && highlightClips.length > 0) {
+    // Broadcast mode: game footage as background with text overlays
+    console.log("\n  Step 4/5: Generating overlay graphics...");
+    const overlayImages = await generateOverlayImages(script.slides, sessionId, headshots);
 
-  console.log("\n  Step 5/5: Composing video...");
-  const useZoom = !args.includes("--no-zoom");
-  const videoPath = await composeVideo(slideImages, audioFiles, `${sessionId}.mp4`, useZoom, highlightClips);
+    console.log("\n  Step 5/5: Composing broadcast video...");
+    const clipPaths = highlightClips.map((c) => c.path);
+    const videoPath = await composeBroadcastVideo(overlayImages, audioFiles, clipPaths, `${sessionId}.mp4`);
 
-  // Optional YouTube upload
-  console.log("\n  Upload check...");
-  await uploadToYouTube(videoPath, script);
+    console.log("\n  Upload check...");
+    await uploadToYouTube(videoPath, script);
+    return videoPath;
+  } else {
+    // Classic mode: static slides with Ken Burns zoom
+    console.log("\n  Step 4/5: Generating slides...");
+    const slideImages = await generateSlideImages(script.slides, sessionId, headshots);
 
-  return videoPath;
+    console.log("\n  Step 5/5: Composing video...");
+    const useZoom = !args.includes("--no-zoom");
+    const videoPath = await composeVideo(slideImages, audioFiles, `${sessionId}.mp4`, useZoom, highlightClips);
+
+    console.log("\n  Upload check...");
+    await uploadToYouTube(videoPath, script);
+    return videoPath;
+  }
 }
 
 // ─── Commands ───────────────────────────────────────────────
@@ -337,10 +357,10 @@ const args = process.argv.slice(2);
 const type = args.find((a) => !a.startsWith("--")) || "sample";
 
 console.log("=========================================");
-console.log("   GlobalBaseball Video Generator v2");
+console.log("   GlobalBaseball Video Generator v3");
 console.log("=========================================");
 console.log(`  Mode: ${type}`);
-console.log(`  Zoom: ${args.includes("--no-zoom") ? "OFF" : "ON (Ken Burns)"}`);
+console.log(`  Style: ${args.includes("--classic") ? "Classic (slides)" : "Broadcast (game footage + overlays)"}`);
 
 switch (type) {
   case "game":
@@ -364,12 +384,13 @@ switch (type) {
 Usage: node scripts/video/generate.mjs [type] [options]
 
 Types:
-  sample         Generate sample video with player headshots
+  sample         Generate sample video with WBC footage
   game-preview   Generate game preview videos from database
   team-preview   Generate team preview videos from database
   all            Generate all video types
 
 Options:
-  --no-zoom      Disable Ken Burns zoom effect (faster encoding)
+  --classic      Use classic slide mode instead of broadcast mode
+  --no-zoom      Disable Ken Burns zoom (classic mode only)
 `);
 }

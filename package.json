@@ -10,7 +10,11 @@
     "video:sample": "node scripts/video/generate.mjs sample",
     "video:games": "node scripts/video/generate.mjs game-preview",
     "video:teams": "node scripts/video/generate.mjs team-preview",
-    "video:all": "node scripts/video/generate.mjs all"
+    "video:all": "node scripts/video/generate.mjs all",
+    "video:upload": "node scripts/video/upload.mjs",
+    "video:upload:unlisted": "node scripts/video/upload.mjs --unlisted",
+    "video:batch": "node scripts/video/batch-wbc.mjs",
+    "video:batch:articles": "node scripts/video/batch-wbc.mjs --articles-only"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
