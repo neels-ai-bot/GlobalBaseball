@@ -5,6 +5,7 @@ export const siteConfig = {
   ogImage: "/og-image.png",
   links: {
     twitter: "https://twitter.com/globalbaseball",
+    youtube: "https://youtube.com/@globalbaseballhq",
   },
   creator: "GlobalBaseball",
 };
@@ -15,5 +16,6 @@ export const navItems = [
   { label: "Schedule", href: "/wbc/schedule" },
   { label: "Standings", href: "/wbc/standings" },
   { label: "Teams", href: "/wbc/teams" },
+  { label: "Videos", href: "/videos" },
   { label: "Blog", href: "/blog" },
 ] as const;
